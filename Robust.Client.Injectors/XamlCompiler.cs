@@ -156,8 +156,7 @@ namespace Robust.Build.Tasks
                         var populateBuilder = typeSystem.CreateTypeBuilder(classTypeDefinition);
 
                         compiler.Compile(parsed, contextClass,
-                            compiler.DefinePopulateMethod(populateBuilder, parsed, populateName,
-                                classTypeDefinition == null),
+                            compiler.DefinePopulateMethod(populateBuilder, parsed, populateName, true),
                             compiler.DefineBuildMethod(builder, parsed, buildName, true),
                             null,
                             (closureName, closureBaseType) =>
@@ -165,19 +164,41 @@ namespace Robust.Build.Tasks
                             res.Uri, res
                         );
 
-                        //add compiled populate method
-                        var compiledPopulateMethod = typeSystem.GetTypeReference(populateBuilder).Resolve().Methods
-                            .First(m => m.Name == populateName);
-
                         const string TrampolineName = "!XamlIlPopulateTrampoline";
                         var trampoline = new MethodDefinition(TrampolineName,
                             MethodAttributes.Static | MethodAttributes.Private, asm.MainModule.TypeSystem.Void);
                         trampoline.Parameters.Add(new ParameterDefinition(classTypeDefinition));
                         classTypeDefinition.Methods.Add(trampoline);
 
-                        trampoline.Body.Instructions.Add(Instruction.Create(OpCodes.Ldnull));
+                        var xamlCompiledMethodProxyManager = asm.MainModule.ImportReference(
+                            typeSystem.GetTypeReference(
+                                typeSystem.FindType("Robust.Client.UserInterface.XamlCompiledMethodProxyManager")));
+                        var populateMethod = xamlCompiledMethodProxyManager.Resolve()
+                            .Methods.First(m => m.Name == "PopulateDynamic");
+
+                        var iocmanager = typeSystem
+                            .GetTypeReference(typeSystem.FindType("Robust.Shared.IoC.IoCManager"))
+                            .Resolve();
+                        var resolveXamlCompiledMethodProxyManagerMethod =
+                            iocmanager.Methods.First(m => m.Name == "Resolve");
+                        var resolveXamlCompiledMethodProxyManagerMethodRef = asm.MainModule.ImportReference(
+                            resolveXamlCompiledMethodProxyManagerMethod.MakeGenericMethod(xamlCompiledMethodProxyManager)
+                        );
+
+                        var systemType = typeSystem.GetTypeReference(typeSystem.FindType("System.Type"));
+                        var getTypeFromHandleMethod = asm.MainModule.ImportReference(
+                            systemType.Resolve().Methods.First(m => m.Name == "GetTypeFromHandle")
+                        );
+                        var getTypeFromHandleMethodRef = asm.MainModule.ImportReference(getTypeFromHandleMethod);
+
+                        var typedHotReloadMethodRef =
+                            asm.MainModule.ImportReference(populateMethod);
+
+                        trampoline.Body.Instructions.Add(Instruction.Create(OpCodes.Call, resolveXamlCompiledMethodProxyManagerMethodRef));
+                        trampoline.Body.Instructions.Add(Instruction.Create(OpCodes.Ldtoken, classTypeDefinition));
+                        trampoline.Body.Instructions.Add(Instruction.Create(OpCodes.Call, getTypeFromHandleMethodRef));
                         trampoline.Body.Instructions.Add(Instruction.Create(OpCodes.Ldarg_0));
-                        trampoline.Body.Instructions.Add(Instruction.Create(OpCodes.Call, compiledPopulateMethod));
+                        trampoline.Body.Instructions.Add(Instruction.Create(OpCodes.Call, typedHotReloadMethodRef));
                         trampoline.Body.Instructions.Add(Instruction.Create(OpCodes.Ret));
 
                         var foundXamlLoader = false;

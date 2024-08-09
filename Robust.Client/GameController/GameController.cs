@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Reflection;
 using System.Runtime;
 using System.Threading.Tasks;
 using Robust.Client.Audio;
@@ -90,6 +91,7 @@ namespace Robust.Client
         [Dependency] private readonly IReplayPlaybackManager _replayPlayback = default!;
         [Dependency] private readonly IReplayRecordingManagerInternal _replayRecording = default!;
         [Dependency] private readonly IReflectionManager _reflectionManager = default!;
+        [Dependency] private readonly IXamlCompiledMethodProxyManager _xamlCompiledMethodProxyManager = default!;
 
         private IWebViewManagerHook? _webViewHook;
 
@@ -171,6 +173,7 @@ namespace Robust.Client
             _reflectionManager.Initialize();
             _prototypeManager.Initialize();
             _prototypeManager.LoadDefaultPrototypes();
+            _xamlCompiledMethodProxyManager.Initialize();
             _userInterfaceManager.Initialize();
             _eyeManager.Initialize();
             _entityManager.Initialize();
