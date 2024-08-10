@@ -33,8 +33,7 @@ namespace Robust.Build.Tasks
         {
             string Uri { get; }
             string Name { get; }
-            void Remove();
-
+            string AssemblyName { get; }
         }
 
         interface IResourceGroup
@@ -68,10 +67,10 @@ namespace Robust.Build.Tasks
 
                 public string Uri => $"resm:{Name}?assembly={_asm.Name.Name}";
                 public string Name => _res.Name;
+                public string AssemblyName => _asm.Name.Name;
                 public string FilePath => Name;
                 public byte[] FileContents => _res.GetResourceData();
 
-                public void Remove() => _asm.MainModule.Resources.Remove(_res);
             }
         }
     }

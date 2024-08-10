@@ -8,6 +8,12 @@ namespace Robust.Build.Tasks
 {
     /// <summary>
     /// Based on https://github.com/AvaloniaUI/Avalonia/blob/c85fa2b9977d251a31886c2534613b4730fbaeaf/src/Avalonia.Build.Tasks/CompileAvaloniaXamlTask.cs
+    ///
+    /// NOTE: To avoid breaking other people's code, this is still named CompileRobustXaml.
+    ///
+    /// However, all compilation now happens at runtime in Robust.Client/UserInterface/XAML/JIT.
+    ///
+    /// This class merely embeds the Xaml
     /// </summary>
     public class CompileRobustXamlTask : ITask
     {
@@ -37,7 +43,7 @@ namespace Robust.Build.Tasks
             var msg = $"CompileRobustXamlTask -> AssemblyFile:{AssemblyFile}, ProjectDirectory:{ProjectDirectory}, OutputPath:{OutputPath}";
             BuildEngine.LogMessage(msg, MessageImportance.High);
 
-            var res = XamlCompiler.Compile(BuildEngine, input,
+            var res = XamlEmbedder.Compile(BuildEngine, input,
                 File.ReadAllLines(ReferencesFilePath).Where(l => !string.IsNullOrWhiteSpace(l)).ToArray(),
                 ProjectDirectory, OutputPath,
                 (SignAssembly && !DelaySign) ? AssemblyOriginatorKeyFile : null);

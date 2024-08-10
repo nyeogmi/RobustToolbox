@@ -21,7 +21,7 @@ namespace Robust.Build.Tasks
     /// Based on https://github.com/AvaloniaUI/Avalonia/blob/c85fa2b9977d251a31886c2534613b4730fbaeaf/src/Avalonia.Build.Tasks/XamlCompilerTaskExecutor.cs
     /// Adjusted for our UI-Framework
     /// </summary>
-    public partial class XamlCompiler
+    public partial class XamlEmbedder
     {
         public static (bool success, bool writtentofile) Compile(IBuildEngine engine, string input, string[] references,
             string projectDirectory, string output, string strongNameKey)
@@ -67,51 +67,43 @@ namespace Robust.Build.Tasks
                 // Nothing to do
                 return null;
 
-            var xamlLanguage = new XamlLanguageTypeMappings(typeSystem)
-            {
-                XmlnsAttributes =
-                {
-                    typeSystem.GetType("Avalonia.Metadata.XmlnsDefinitionAttribute"),
-
-                },
-                ContentAttributes =
-                {
-                    typeSystem.GetType("Avalonia.Metadata.ContentAttribute")
-                },
-                UsableDuringInitializationAttributes =
-                {
-                    typeSystem.GetType("Robust.Client.UserInterface.XAML.UsableDuringInitializationAttribute")
-                },
-                DeferredContentPropertyAttributes =
-                {
-                    typeSystem.GetType("Robust.Client.UserInterface.XAML.DeferredContentAttribute")
-                },
-                RootObjectProvider = typeSystem.GetType("Robust.Client.UserInterface.XAML.ITestRootObjectProvider"),
-                UriContextProvider = typeSystem.GetType("Robust.Client.UserInterface.XAML.ITestUriContext"),
-                ProvideValueTarget = typeSystem.GetType("Robust.Client.UserInterface.XAML.ITestProvideValueTarget"),
-            };
-            var emitConfig = new XamlLanguageEmitMappings<IXamlILEmitter, XamlILNodeEmitResult>
-            {
-                ContextTypeBuilderCallback = (b,c) => EmitNameScopeField(xamlLanguage, typeSystem, b, c)
-            };
-
-            var transformerconfig = new TransformerConfiguration(
-                typeSystem,
-                typeSystem.TargetAssembly,
-                xamlLanguage,
-                XamlXmlnsMappings.Resolve(typeSystem, xamlLanguage), CustomValueConverter);
-
             var contextDef = new TypeDefinition("CompiledRobustXaml", "XamlIlContext",
                 TypeAttributes.Class, asm.MainModule.TypeSystem.Object);
             asm.MainModule.Types.Add(contextDef);
-            var contextClass = XamlILContextDefinition.GenerateContextClass(typeSystem.CreateTypeBuilder(contextDef), typeSystem,
-                xamlLanguage, emitConfig);
 
-            var compiler =
-                new RobustXamlILCompiler(transformerconfig, emitConfig, true);
+            // these are classes and methods our generated code depends on
+            var iocManager = typeSystem.GetTypeReference(typeSystem.FindType("Robust.Shared.IoC.IoCManager")).Resolve();
+
+            var xamlJitHookup = typeSystem.GetTypeReference(typeSystem.FindType("Robust.Client.UserInterface.XAML.JIT.XamlJitHookup")).Resolve();
+            var resolveXamlJitManagerMethod =
+                asm.MainModule.ImportReference(
+                    iocManager.Methods.First(m => m.Name == "Resolve").MakeGenericMethod(xamlJitHookup)
+                );
+            var populateJitMethod = asm.MainModule.ImportReference(xamlJitHookup.Methods.First(m => m.Name == "PopulateJit"));
+
+            var systemType = typeSystem.GetTypeReference(typeSystem.FindType("System.Type"));
+            var getTypeFromHandleMethod = asm.MainModule.ImportReference(
+                systemType.Resolve().Methods.First(m => m.Name == "GetTypeFromHandle")
+            );
+
+            var stringType = typeSystem.GetTypeReference(typeSystem.FindType(typeof(string).FullName));
+
+            var xamlJitEmbeddedResourceAttribute = typeSystem.GetTypeReference(
+                typeSystem.FindType("Robust.Client.UserInterface.XAML.JIT.XamlJitEmbeddedResourceAttribute")
+            ).Resolve();
+            var xamlJitEmbeddedResourceAttributeConstructor = asm.MainModule.ImportReference(
+                xamlJitEmbeddedResourceAttribute
+                    .GetConstructors()
+                    .First(
+                        c => c.Parameters.Count == 2 &&
+                             c.Parameters[0].ParameterType.FullName == "System.String" &&
+                             c.Parameters[1].ParameterType.FullName == "System.String"
+                    )
+            );
 
             bool CompileGroup(IResourceGroup group)
             {
+
                 var typeDef = new TypeDefinition("CompiledRobustXaml", "!" + group.Name, TypeAttributes.Class,
                     asm.MainModule.TypeSystem.Object);
 
@@ -146,40 +138,20 @@ namespace Robust.Build.Tasks
                         if (classType == null)
                             throw new Exception($"Unable to find type '{classname}'");
 
-                        compiler.Transform(parsed);
-
                         var classTypeDefinition = typeSystem.GetTypeReference(classType).Resolve();
 
-                        /*
-                        var populateName = $"Populate:{res.Name}";
-                        var buildName = $"Build:{res.Name}";
-
-                        var populateBuilder = typeSystem.CreateTypeBuilder(classTypeDefinition);
-
-                        compiler.Compile(parsed, contextClass,
-                            compiler.DefinePopulateMethod(populateBuilder, parsed, populateName,
-                                classTypeDefinition == null),
-                            compiler.DefineBuildMethod(builder, parsed, buildName, true),
-                            null,
-                            (closureName, closureBaseType) =>
-                                populateBuilder.DefineSubType(closureBaseType, closureName, false),
-                            res.Uri, res
-                        );
-
-                        //add compiled populate method
-                        var compiledPopulateMethod = typeSystem.GetTypeReference(populateBuilder).Resolve().Methods
-                            .First(m => m.Name == populateName);
-                            */
-
                         const string TrampolineName = "!XamlIlPopulateTrampoline";
+
                         var trampoline = new MethodDefinition(TrampolineName,
                             MethodAttributes.Static | MethodAttributes.Private, asm.MainModule.TypeSystem.Void);
                         trampoline.Parameters.Add(new ParameterDefinition(classTypeDefinition));
                         classTypeDefinition.Methods.Add(trampoline);
 
-                        trampoline.Body.Instructions.Add(Instruction.Create(OpCodes.Ldnull));
+                        trampoline.Body.Instructions.Add(Instruction.Create(OpCodes.Call, resolveXamlJitManagerMethod));
+                        trampoline.Body.Instructions.Add(Instruction.Create(OpCodes.Ldtoken, classTypeDefinition));
+                        trampoline.Body.Instructions.Add(Instruction.Create(OpCodes.Call, getTypeFromHandleMethod));
                         trampoline.Body.Instructions.Add(Instruction.Create(OpCodes.Ldarg_0));
-                        trampoline.Body.Instructions.Add(Instruction.Create(OpCodes.Call, compiledPopulateMethod));
+                        trampoline.Body.Instructions.Add(Instruction.Create(OpCodes.Call, populateJitMethod));
                         trampoline.Body.Instructions.Add(Instruction.Create(OpCodes.Ret));
 
                         var foundXamlLoader = false;
@@ -217,6 +189,11 @@ namespace Robust.Build.Tasks
                             }
                         }
 
+                        var xamlJitAttribute = new CustomAttribute(xamlJitEmbeddedResourceAttributeConstructor);
+                        xamlJitAttribute.ConstructorArguments.Add(new CustomAttributeArgument(stringType, res.FilePath));
+                        xamlJitAttribute.ConstructorArguments.Add(new CustomAttributeArgument(stringType, res.Uri));
+                        classTypeDefinition.CustomAttributes.Add(xamlJitAttribute);
+
                         if (!foundXamlLoader)
                         {
                             var ctors = classTypeDefinition.GetConstructors()
@@ -241,7 +218,6 @@ namespace Robust.Build.Tasks
                         engine.LogErrorEvent(new BuildErrorEventArgs("XAMLIL", "", res.FilePath, 0, 0, 0, 0,
                             $"{res.FilePath}: {e.Message}", "", "CompileRobustXaml"));
                     }
-                    res.Remove();
                 }
                 return true;
             }
@@ -255,124 +231,6 @@ namespace Robust.Build.Tasks
             return true;
         }
 
-        private static bool CustomValueConverter(
-            AstTransformationContext context,
-            IXamlAstValueNode node,
-            IXamlType type,
-            out IXamlAstValueNode result)
-        {
-            if (!(node is XamlAstTextNode textNode))
-            {
-                result = null;
-                return false;
-            }
-
-            var text = textNode.Text;
-            var types = context.GetRobustTypes();
-
-            if (type.Equals(types.Vector2))
-            {
-                var foo = MathParsing.Single2.Parse(text);
-
-                if (!foo.Success)
-                    throw new XamlLoadException($"Unable to parse \"{text}\" as a Vector2", node);
-
-                var (x, y) = foo.Value;
-
-                result = new RXamlSingleVecLikeConstAstNode(
-                    node,
-                    types.Vector2, types.Vector2ConstructorFull,
-                    types.Single, new[] {x, y});
-                return true;
-            }
-
-            if (type.Equals(types.Thickness))
-            {
-                var foo = MathParsing.Thickness.Parse(text);
-
-                if (!foo.Success)
-                    throw new XamlLoadException($"Unable to parse \"{text}\" as a Thickness", node);
-
-                var val = foo.Value;
-                float[] full;
-                if (val.Length == 1)
-                {
-                    var u = val[0];
-                    full = new[] {u, u, u, u};
-                }
-                else if (val.Length == 2)
-                {
-                    var h = val[0];
-                    var v = val[1];
-                    full = new[] {h, v, h, v};
-                }
-                else // 4
-                {
-                    full = val;
-                }
-
-                result = new RXamlSingleVecLikeConstAstNode(
-                    node,
-                    types.Thickness, types.ThicknessConstructorFull,
-                    types.Single, full);
-                return true;
-            }
-
-            if (type.Equals(types.Thickness))
-            {
-                var foo = MathParsing.Thickness.Parse(text);
-
-                if (!foo.Success)
-                    throw new XamlLoadException($"Unable to parse \"{text}\" as a Thickness", node);
-
-                var val = foo.Value;
-                float[] full;
-                if (val.Length == 1)
-                {
-                    var u = val[0];
-                    full = new[] {u, u, u, u};
-                }
-                else if (val.Length == 2)
-                {
-                    var h = val[0];
-                    var v = val[1];
-                    full = new[] {h, v, h, v};
-                }
-                else // 4
-                {
-                    full = val;
-                }
-
-                result = new RXamlSingleVecLikeConstAstNode(
-                    node,
-                    types.Thickness, types.ThicknessConstructorFull,
-                    types.Single, full);
-                return true;
-            }
-
-            if (type.Equals(types.Color))
-            {
-                // TODO: Interpret these colors at XAML compile time instead of at runtime.
-                result = new RXamlColorAstNode(node, types, text);
-                return true;
-            }
-
-            result = null;
-            return false;
-        }
-
-        public const string ContextNameScopeFieldName = "RobustNameScope";
-
-        private static void EmitNameScopeField(XamlLanguageTypeMappings xamlLanguage, CecilTypeSystem typeSystem, IXamlTypeBuilder<IXamlILEmitter> typeBuilder, IXamlILEmitter constructor)
-        {
-            var nameScopeType = typeSystem.FindType("Robust.Client.UserInterface.XAML.NameScope");
-            var field = typeBuilder.DefineField(nameScopeType,
-                ContextNameScopeFieldName, true, false);
-            constructor
-                .Ldarg_0()
-                .Newobj(nameScopeType.GetConstructor())
-                .Stfld(field);
-        }
     }
 
     interface IResource : IFileSource
