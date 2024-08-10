@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using Robust.Client.Timing;
 using Robust.LoaderApi;
@@ -15,8 +16,8 @@ namespace Robust.Client
     {
         private IGameLoop? _mainLoop;
 
-        [Dependency] private readonly IClientGameTiming _gameTiming = default!;
-        [Dependency] private readonly IDependencyCollection _dependencyCollection = default!;
+        [Shared.IoC.Dependency] private readonly IClientGameTiming _gameTiming = default!;
+        [Shared.IoC.Dependency] private readonly IDependencyCollection _dependencyCollection = default!;
 
         private static bool _hasStarted;
 

@@ -148,10 +148,11 @@ namespace Robust.Build.Tasks
 
                         compiler.Transform(parsed);
 
+                        var classTypeDefinition = typeSystem.GetTypeReference(classType).Resolve();
+
+                        /*
                         var populateName = $"Populate:{res.Name}";
                         var buildName = $"Build:{res.Name}";
-
-                        var classTypeDefinition = typeSystem.GetTypeReference(classType).Resolve();
 
                         var populateBuilder = typeSystem.CreateTypeBuilder(classTypeDefinition);
 
@@ -168,6 +169,7 @@ namespace Robust.Build.Tasks
                         //add compiled populate method
                         var compiledPopulateMethod = typeSystem.GetTypeReference(populateBuilder).Resolve().Methods
                             .First(m => m.Name == populateName);
+                            */
 
                         const string TrampolineName = "!XamlIlPopulateTrampoline";
                         var trampoline = new MethodDefinition(TrampolineName,

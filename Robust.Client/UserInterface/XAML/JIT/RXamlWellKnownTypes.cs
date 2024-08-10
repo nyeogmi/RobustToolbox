@@ -2,7 +2,7 @@
 using XamlX.Transform;
 using XamlX.TypeSystem;
 
-namespace Robust.Build.Tasks
+namespace Robust.Client.UserInterface.XAML.JIT
 {
     class RXamlWellKnownTypes
     {

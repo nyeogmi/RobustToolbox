@@ -1,5 +1,7 @@
-﻿using System.Diagnostics;
+﻿using System;
+using System.Diagnostics;
 using System.Linq;
+using Robust.Shared.Utility;
 using XamlX;
 using XamlX.Ast;
 using XamlX.Emit;
@@ -7,7 +9,7 @@ using XamlX.IL;
 using XamlX.Transform;
 using XamlX.TypeSystem;
 
-namespace Robust.Build.Tasks
+namespace Robust.Client.UserInterface.XAML.JIT
 {
     /// <summary>
     /// Emitters & Transformers based on:
@@ -15,8 +17,12 @@ namespace Robust.Build.Tasks
     /// - https://github.com/AvaloniaUI/Avalonia/blob/c85fa2b9977d251a31886c2534613b4730fbaeaf/src/Markup/Avalonia.Markup.Xaml.Loader/CompilerExtensions/Transformers/AddNameScopeRegistration.cs
     /// - https://github.com/AvaloniaUI/Avalonia/blob/afb8ae6f3c517dae912729511483995b16cb31af/src/Markup/Avalonia.Markup.Xaml.Loader/CompilerExtensions/Transformers/IgnoredDirectivesTransformer.cs
     /// </summary>
-    public class RobustXamlILCompiler : XamlILCompiler
+    public sealed class RobustXamlILCompiler : XamlILCompiler
     {
+        // NOTE: This must equal the same constant in XamlEmbedder.cs
+        // This should be moved to a shared dependency at some point in the near future
+        public const string ContextNameScopeFieldName = "RobustNameScope";
+
         public RobustXamlILCompiler(TransformerConfiguration configuration, XamlLanguageEmitMappings<IXamlILEmitter, XamlILNodeEmitResult> emitMappings, bool fillWithDefaults) : base(configuration, emitMappings, fillWithDefaults)
         {
             Transformers.Insert(0, new IgnoredDirectivesTransformer());
@@ -41,7 +47,7 @@ namespace Robust.Build.Tasks
                             && mg.Children.OfType<RobustNameScopeRegistrationXamlIlNode>().Any())
                             return node;
 
-                        IXamlAstValueNode value = null;
+                        IXamlAstValueNode? value = null;
                         for (var c = 0; c < pa.Values.Count; c++)
                             if (pa.Values[c].Type.GetClrType().Equals(context.Configuration.WellKnownTypes.String))
                             {
@@ -60,7 +66,10 @@ namespace Robust.Build.Tasks
 
                         if (value != null)
                         {
-                            var objectType = context.ParentNodes().OfType<XamlAstConstructableObjectNode>().FirstOrDefault()?.Type.GetClrType();
+                            var objectType = context.ParentNodes()
+                                .OfType<XamlAstConstructableObjectNode>()
+                                .FirstOrDefault()
+                                ?.Type.GetClrType();
                             return new XamlManipulationGroupNode(pa)
                             {
                                 Children =
@@ -84,9 +93,9 @@ namespace Robust.Build.Tasks
             class RobustNameScopeRegistrationXamlIlNode : XamlAstNode, IXamlAstManipulationNode
             {
                 public IXamlAstValueNode Name { get; set; }
-                public IXamlType TargetType { get; }
+                public IXamlType? TargetType { get; }
 
-                public RobustNameScopeRegistrationXamlIlNode(IXamlAstValueNode name, IXamlType targetType) : base(name)
+                public RobustNameScopeRegistrationXamlIlNode(IXamlAstValueNode name, IXamlType? targetType) : base(name)
                 {
                     TargetType = targetType;
                     Name = name;
@@ -104,7 +113,7 @@ namespace Robust.Build.Tasks
                     {
 
                         var scopeField = context.RuntimeContext.ContextType.Fields.First(f =>
-                            f.Name == XamlCompiler.ContextNameScopeFieldName);
+                            f.Name == ContextNameScopeFieldName);
                         var namescopeRegisterFunction = context.Configuration.TypeSystem
                             .FindType("Robust.Client.UserInterface.XAML.NameScope").Methods
                             .First(m => m.Name == "Register");
@@ -128,7 +137,7 @@ namespace Robust.Build.Tasks
 
                         return XamlILNodeEmitResult.Void(1);
                     }
-                    return default;
+                    return default!;  // PYREX NOTE: This doesn't seem like it should be allowed!
                 }
             }
         }
@@ -161,7 +170,7 @@ namespace Robust.Build.Tasks
                 {
                     if (!(node is HandleRootObjectScopeNode))
                     {
-                        return null;
+                        return null!;  // PYREX NOTE: This doesn't seem like it should be allowed
                     }
 
                     var controlType = context.Configuration.TypeSystem.FindType("Robust.Client.UserInterface.Control");
@@ -170,7 +179,7 @@ namespace Robust.Build.Tasks
                     var dontAbsorb = codeGen.DefineLabel();
                     var end = codeGen.DefineLabel();
                     var contextScopeField = context.RuntimeContext.ContextType.Fields.First(f =>
-                        f.Name == XamlCompiler.ContextNameScopeFieldName);
+                        f.Name == ContextNameScopeFieldName);
                     var controlNameScopeField = controlType.Fields.First(f => f.Name == "NameScope");
                     var nameScopeType = context.Configuration.TypeSystem
                         .FindType("Robust.Client.UserInterface.XAML.NameScope");

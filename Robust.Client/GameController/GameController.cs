@@ -19,6 +19,7 @@ using Robust.Client.State;
 using Robust.Client.Upload;
 using Robust.Client.UserInterface;
 using Robust.Client.UserInterface.RichText;
+using Robust.Client.UserInterface.XAML.JIT;
 using Robust.Client.Utility;
 using Robust.Client.ViewVariables;
 using Robust.Client.WebViewHook;
@@ -54,6 +55,7 @@ namespace Robust.Client
         [Dependency] private readonly IResourceManagerInternal _resManager = default!;
         [Dependency] private readonly IRobustSerializer _serializer = default!;
         [Dependency] private readonly IPrototypeManager _prototypeManager = default!;
+        [Dependency] private readonly IXamlJitManager _xamlJitManager = default!;
         [Dependency] private readonly IClientNetManager _networkManager = default!;
         [Dependency] private readonly IMapManager _mapManager = default!;
         [Dependency] private readonly IStateManager _stateManager = default!;
@@ -171,6 +173,7 @@ namespace Robust.Client
             _reflectionManager.Initialize();
             _prototypeManager.Initialize();
             _prototypeManager.LoadDefaultPrototypes();
+            _xamlJitManager.Initialize();
             _userInterfaceManager.Initialize();
             _eyeManager.Initialize();
             _entityManager.Initialize();

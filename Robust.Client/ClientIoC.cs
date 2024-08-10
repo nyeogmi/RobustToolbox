@@ -26,6 +26,7 @@ using Robust.Client.Upload;
 using Robust.Client.UserInterface;
 using Robust.Client.UserInterface.RichText;
 using Robust.Client.UserInterface.Themes;
+using Robust.Client.UserInterface.XAML.JIT;
 using Robust.Client.Utility;
 using Robust.Client.ViewVariables;
 using Robust.Shared;
@@ -146,6 +147,8 @@ namespace Robust.Client
             deps.Register<IConfigurationManagerInternal, ClientNetConfigurationManager>();
             deps.Register<IClientNetConfigurationManager, ClientNetConfigurationManager>();
             deps.Register<INetConfigurationManagerInternal, ClientNetConfigurationManager>();
+            deps.Register<IXamlJitManager, XamlJitManager>();
+            deps.Register<XamlJitHookup, XamlJitHookup>();  // the interface version is less compatible w/ sandboxing
             deps.Register<MarkupTagManager>();
         }
     }
